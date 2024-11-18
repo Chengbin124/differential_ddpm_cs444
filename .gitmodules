@@ -1,0 +1,3 @@
+[submodule "external_libraries/denoising-diffusion-pytorch"]
+	path = external_libraries/denoising-diffusion-pytorch
+	url = https://github.com/jh603/denoising-diffusion-pytorch
