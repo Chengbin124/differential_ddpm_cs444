@@ -1,0 +1,6 @@
+torchvision
+diffusers
+deepspeed
+accelerate
+Unet
+transformers
