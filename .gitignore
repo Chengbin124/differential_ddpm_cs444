@@ -1,1 +1,11 @@
-*.png
+
+__pycache__/
+.vscode
+venv
+
+data/*
+
+models/DDPM_conditional/
+models/DDPM_differential/
+
+runs/

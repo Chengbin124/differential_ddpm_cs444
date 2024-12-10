@@ -1,9 +1,7 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from flash_attn import flash_attn_func
-from math import sqrt
+
 
 def one_param(m):
     "get model first parameter"
@@ -13,6 +11,7 @@ def one_param(m):
         print("The model has parameters.")
     return next(iter(m.parameters()))
 
+
 class EMA:
     def __init__(self, beta):
         super().__init__()
@@ -20,7 +19,9 @@ class EMA:
         self.step = 0
 
     def update_model_average(self, ma_model, current_model):
-        for current_params, ma_params in zip(current_model.parameters(), ma_model.parameters()):
+        for current_params, ma_params in zip(
+            current_model.parameters(), ma_model.parameters()
+        ):
             old_weight, up_weight = ma_params.data, current_params.data
             ma_params.data = self.update_average(old_weight, up_weight)
 
@@ -42,47 +43,26 @@ class EMA:
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, channels, num_heads=4):
+    def __init__(self, channels):
         super(SelfAttention, self).__init__()
         self.channels = channels
-        self.num_heads = num_heads
-        self.head_dim = channels // num_heads
-
-        assert self.head_dim * num_heads == channels, "channels must be divisible by num_heads"
-
-        self.scaling = self.head_dim ** -0.5
-
-        self.query = nn.Linear(channels, channels)
-        self.key = nn.Linear(channels, channels)
-        self.value = nn.Linear(channels, channels)
-        
-        self.atten = nn.Linear(channels, channels)
-
+        self.mha = nn.MultiheadAttention(channels, 4, batch_first=True)
         self.ln = nn.LayerNorm([channels])
-        self.sda = flash_attn_func
         self.ff_self = nn.Sequential(
             nn.LayerNorm([channels]),
             nn.Linear(channels, channels),
             nn.GELU(),
             nn.Linear(channels, channels),
         )
-        
+
     def forward(self, x):
         size = x.shape[-1]
-        batch_size = x.size(0)
         x = x.view(-1, self.channels, size * size).swapaxes(1, 2)
         x_ln = self.ln(x)
-        # Linear projections for queries, keys, and values
-        queries = self.query(x_ln).view(batch_size, -1, self.num_heads, self.head_dim)
-        keys = self.key(x_ln).view(batch_size, -1, self.num_heads, self.head_dim)
-        values = self.value(x_ln).view(batch_size, -1, self.num_heads, self.head_dim)
-        attention_value = self.sda(queries, keys, values).contiguous().view(batch_size, -1, self.channels)
-        attention_value = self.atten(attention_value)
+        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
         attention_value = attention_value + x
         attention_value = self.ff_self(attention_value) + attention_value
         return attention_value.swapaxes(2, 1).view(-1, self.channels, size, size)
-
-    
 
 
 class DoubleConv(nn.Module):
@@ -117,10 +97,7 @@ class Down(nn.Module):
 
         self.emb_layer = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(
-                emb_dim,
-                out_channels
-            ),
+            nn.Linear(emb_dim, out_channels),
         )
 
     def forward(self, x, t):
@@ -141,10 +118,7 @@ class Up(nn.Module):
 
         self.emb_layer = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(
-                emb_dim,
-                out_channels
-            ),
+            nn.Linear(emb_dim, out_channels),
         )
 
     def forward(self, x, skip_x, t):
@@ -168,7 +142,6 @@ class UNet(nn.Module):
         self.down3 = Down(256, 256, emb_dim=time_dim)
         self.sa3 = SelfAttention(256)
 
-
         if remove_deep_conv:
             self.bot1 = DoubleConv(256, 256)
             self.bot3 = DoubleConv(256, 256)
@@ -187,8 +160,7 @@ class UNet(nn.Module):
 
     def pos_encoding(self, t, channels):
         inv_freq = 1.0 / (
-            10000
-            ** (torch.arange(0, channels, 2, device="cuda").float() / channels)
+            10000 ** (torch.arange(0, channels, 2, device="cuda").float() / channels)
         )
         pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
         pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
@@ -217,7 +189,7 @@ class UNet(nn.Module):
         x = self.sa6(x)
         output = self.outc(x)
         return output
-    
+
     def forward(self, x, t):
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
@@ -227,15 +199,14 @@ class UNet(nn.Module):
 class UNet_conditional(UNet):
     def __init__(self, c_in=3, c_out=3, time_dim=256, num_classes=None, **kwargs):
         super().__init__(c_in, c_out, time_dim, **kwargs)
-        #if num_classes is not None:
-        #    self.label_emb = nn.Embedding(num_classes, time_dim)
+        if num_classes is not None:
+            self.label_emb = nn.Embedding(num_classes, time_dim)
 
     def forward(self, x, t, y=None):
         t = t.unsqueeze(-1)
         t = self.pos_encoding(t, self.time_dim)
 
         if y is not None:
-            #t += self.label_emb(y)
-            t += y
+            t += self.label_emb(y)
 
         return self.unet_forwad(x, t)

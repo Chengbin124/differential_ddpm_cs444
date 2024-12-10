@@ -10,17 +10,28 @@ from modules import UNet_conditional, EMA
 import logging
 from torch.utils.tensorboard import SummaryWriter
 
-logging.basicConfig(format="%(asctime)s - %(levelname)s: %(message)s", level=logging.INFO, datefmt="%I:%M:%S")
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s: %(message)s",
+    level=logging.INFO,
+    datefmt="%I:%M:%S",
+)
 
 
 class Diffusion:
-    def __init__(self, noise_steps=1000, beta_start=1e-4, beta_end=0.02, img_size=256, device="cuda"):
+    def __init__(
+        self,
+        noise_steps=1000,
+        beta_start=1e-4,
+        beta_end=0.02,
+        img_size=256,
+        device="cuda",
+    ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
         self.beta_end = beta_end
 
         self.beta = self.prepare_noise_schedule().to(device)
-        self.alpha = 1. - self.beta
+        self.alpha = 1.0 - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
 
         self.img_size = img_size
@@ -31,7 +42,9 @@ class Diffusion:
 
     def noise_images(self, x, t):
         sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
-        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[:, None, None, None]
+        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[
+            :, None, None, None
+        ]
         Ɛ = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * Ɛ, Ɛ
 
@@ -48,7 +61,9 @@ class Diffusion:
                 predicted_noise = model(x, t, labels)
                 if cfg_scale > 0:
                     uncond_predicted_noise = model(x, t, None)
-                    predicted_noise = torch.lerp(uncond_predicted_noise, predicted_noise, cfg_scale)
+                    predicted_noise = torch.lerp(
+                        uncond_predicted_noise, predicted_noise, cfg_scale
+                    )
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 beta = self.beta[t][:, None, None, None]
@@ -56,7 +71,15 @@ class Diffusion:
                     noise = torch.randn_like(x)
                 else:
                     noise = torch.zeros_like(x)
-                x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise) + torch.sqrt(beta) * noise
+                x = (
+                    1
+                    / torch.sqrt(alpha)
+                    * (
+                        x
+                        - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise
+                    )
+                    + torch.sqrt(beta) * noise
+                )
         model.train()
         x = (x.clamp(-1, 1) + 1) / 2
         x = (x * 255).type(torch.uint8)
@@ -100,17 +123,33 @@ def train(args):
         if epoch % 10 == 0:
             labels = torch.arange(10).long().to(device)
             sampled_images = diffusion.sample(model, n=len(labels), labels=labels)
-            ema_sampled_images = diffusion.sample(ema_model, n=len(labels), labels=labels)
+            ema_sampled_images = diffusion.sample(
+                ema_model, n=len(labels), labels=labels
+            )
             plot_images(sampled_images)
-            save_images(sampled_images, os.path.join("results", args.run_name, f"{epoch}.jpg"))
-            save_images(ema_sampled_images, os.path.join("results", args.run_name, f"{epoch}_ema.jpg"))
-            torch.save(model.state_dict(), os.path.join("models", args.run_name, f"ckpt.pt"))
-            torch.save(ema_model.state_dict(), os.path.join("models", args.run_name, f"ema_ckpt.pt"))
-            torch.save(optimizer.state_dict(), os.path.join("models", args.run_name, f"optim.pt"))
+            save_images(
+                sampled_images, os.path.join("results", args.run_name, f"{epoch}.jpg")
+            )
+            save_images(
+                ema_sampled_images,
+                os.path.join("results", args.run_name, f"{epoch}_ema.jpg"),
+            )
+            torch.save(
+                model.state_dict(), os.path.join("models", args.run_name, f"ckpt.pt")
+            )
+            torch.save(
+                ema_model.state_dict(),
+                os.path.join("models", args.run_name, f"ema_ckpt.pt"),
+            )
+            torch.save(
+                optimizer.state_dict(),
+                os.path.join("models", args.run_name, f"optim.pt"),
+            )
 
 
 def launch():
     import argparse
+
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
     args.run_name = "DDPM_conditional"
@@ -124,15 +163,5 @@ def launch():
     train(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     launch()
-#     device = "cuda"
-#     model = UNet_conditional(num_classes=10).to(device)
-#     ckpt = torch.load("./models/DDPM_conditional/ckpt.pt")
-#     model.load_state_dict(ckpt)
-#     diffusion = Diffusion(img_size=64, device=device)
-#     n = 8
-#     y = torch.Tensor([6] * n).long().to(device)
-#     x = diffusion.sample(model, n, y, cfg_scale=0)
-#     save_images(x, os.path.join("images", "image_diffusion.jpg"))
-
