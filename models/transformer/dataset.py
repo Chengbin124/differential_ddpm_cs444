@@ -12,12 +12,9 @@ class TextDataset(Dataset):
         self.tokenizer = tokenizer
         self.max_length = max_length
 
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        text = self.texts[idx]
-        label = self.labels[idx]
+    def __getitem__(self, index):
+        text = self.texts[index]
+        label = self.labels[index]
         encoding = self.tokenizer(
             text,
             padding="max_length",
@@ -26,7 +23,10 @@ class TextDataset(Dataset):
             return_tensors="pt",
         )
         return {
-            "input_ids": encoding["input_ids"].squeeze(0),
+            "id": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
-            "labels": torch.tensor(label, dtype=torch.long),
+            "labels": torch.tensor(label),
         }
+    
+    def __len__(self):
+        return len(self.texts)
